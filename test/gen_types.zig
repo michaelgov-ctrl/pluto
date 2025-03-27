@@ -5,8 +5,8 @@ const File = std.fs.File;
 // Check duplicate types
 comptime {
     @setEvalBranchQuota(types.len * types.len * 7);
-    inline for (types) |t1, i| {
-        inline for (types) |t2, j| {
+    for (types, 0..) |t1, i| {
+        for (types, 0..) |t2, j| {
             if (i != j) {
                 if (std.mem.eql(u8, t1[0], t2[0])) {
                     @compileError("Duplicate types: " ++ t1[0]);
@@ -144,7 +144,7 @@ fn genDataElement() []const u8 {
 // All the function generation parts are the same apart from 3 things
 fn genGenericFunc(comptime intermediate: []const u8, comptime trail: []const u8, comptime end: []const u8) []const u8 {
     comptime var str: []const u8 = "";
-    inline for (types) |t, i| {
+    inline for (types, 0..) |t, i| {
         const spaces = if (i == 0) " " ** 4 else " " ** 16;
         str = str ++ spaces ++ t[0] ++ intermediate ++ t[1] ++ trail;
     }

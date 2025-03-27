@@ -192,7 +192,7 @@ pub const FileNode = struct {
     /// See the documentation for FileSystem.Close
     pub fn close(self: *const FileNode) void {
         // TODO: Use @fieldParentPtr() once implemented for unions
-        return self.fs.close(self.fs, @ptrCast(*const Node, self));
+        return self.fs.close(self.fs, @ptrCast(self));
     }
 
     /// See the documentation for FileSystem.Write
@@ -218,10 +218,10 @@ pub const DirNode = struct {
     /// See the documentation for FileSystem.Close
     pub fn close(self: *const DirNode) void {
         var fs = self.fs;
-        var node = self;
+        const node = self;
 
         // TODO: Use @fieldParentPtr() once implemented for unions
-        const cast_node = @ptrCast(*const Node, node);
+        const cast_node: *const Node = @ptrCast(node);
         // Can't close the root node
         if (cast_node == root) {
             return;
@@ -240,7 +240,7 @@ pub const SymlinkNode = struct {
     /// See the documentation for FileSystem.Close
     pub fn close(self: *const SymlinkNode) void {
         // TODO: Use @fieldParentPtr() once implemented for unions
-        return self.fs.close(self.fs, @ptrCast(*const Node, self));
+        return self.fs.close(self.fs, @ptrCast(self));
     }
 };
 
@@ -527,7 +527,7 @@ pub fn openSymlink(path: []const u8, target: ?[]const u8, flags: OpenFlags) (All
         .CREATE_DIR, .CREATE_FILE => return Error.InvalidFlags,
         .NO_CREATION, .CREATE_SYMLINK => {},
     }
-    var node = try open(path, false, flags, .{ .symlink_target = target });
+    const node = try open(path, false, flags, .{ .symlink_target = target });
     return switch (node.*) {
         .Symlink => |t| t.path,
         .File => |*file| blk: {
@@ -613,8 +613,8 @@ const TestFS = struct {
         }
         // Form a list containing all directory nodes to check via a breadth-first search
         // This is inefficient but good for testing as it's clear and easy to modify
-        var to_check = TailQueue(*TreeNode){};
-        var root_node = try test_fs.allocator.create(TailQueue(*TreeNode).Node);
+        const to_check = TailQueue(*TreeNode){};
+        const root_node = try test_fs.allocator.create(TailQueue(*TreeNode).Node);
         root_node.* = .{ .data = &test_fs.tree };
         to_check.append(root_node);
 
@@ -630,7 +630,7 @@ const TestFS = struct {
             }
             for (tree_node.children.items) |child| {
                 // It's not the parent so add its children to the list for checking
-                var n = try test_fs.allocator.create(TailQueue(*TreeNode).Node);
+                const n = try test_fs.allocator.create(TailQueue(*TreeNode).Node);
                 n.* = .{ .data = child };
                 to_check.append(n);
             }
@@ -639,21 +639,21 @@ const TestFS = struct {
     }
 
     fn getRootNode(fs: *const FileSystem) *const DirNode {
-        var test_fs = @fieldParentPtr(TestFS, "instance", fs.instance);
+        var test_fs: TestFS = @fieldParentPtr("instance", fs.instance);
         return &test_fs.tree.val.Dir;
     }
 
     fn close(fs: *const FileSystem, node: *const Node) void {
         // Suppress unused var warning
         _ = node;
-        var test_fs = @fieldParentPtr(TestFS, "instance", fs.instance);
+        var test_fs: TestFS = @fieldParentPtr("instance", fs.instance);
         test_fs.open_count -= 1;
     }
 
     fn read(fs: *const FileSystem, node: *const FileNode, bytes: []u8) (Allocator.Error || Error)!usize {
-        var test_fs = @fieldParentPtr(TestFS, "instance", fs.instance);
+        const test_fs: TestFS = @fieldParentPtr("instance", fs.instance);
         // Get the tree that corresponds to the node. Cannot error as the file is already open so it does exist
-        var tree = (getTreeNode(test_fs, node) catch unreachable) orelse unreachable;
+        const tree = (getTreeNode(test_fs, node) catch unreachable) orelse unreachable;
         const count = if (tree.data) |d| std.math.min(bytes.len, d.len) else 0;
         const data = if (tree.data) |d| d[0..count] else "";
         std.mem.copy(u8, bytes, data);
@@ -661,7 +661,7 @@ const TestFS = struct {
     }
 
     fn write(fs: *const FileSystem, node: *const FileNode, bytes: []const u8) (Allocator.Error || Error)!usize {
-        var test_fs = @fieldParentPtr(TestFS, "instance", fs.instance);
+        var test_fs: TestFS = @fieldParentPtr("instance", fs.instance);
         var tree = (try getTreeNode(test_fs, node)) orelse unreachable;
         if (tree.data) |_| {
             test_fs.allocator.free(tree.data.?);
@@ -672,7 +672,7 @@ const TestFS = struct {
     }
 
     fn open(fs: *const FileSystem, dir: *const DirNode, name: []const u8, flags: OpenFlags, args: OpenArgs) (Allocator.Error || Error)!*Node {
-        var test_fs = @fieldParentPtr(TestFS, "instance", fs.instance);
+        var test_fs: TestFS = @fieldParentPtr("instance", fs.instance);
         const parent = (try getTreeNode(test_fs, dir)) orelse unreachable;
         // Check if the children match the file wanted
         for (parent.children.items) |child| {
@@ -707,8 +707,8 @@ const TestFS = struct {
                 .NO_CREATION => unreachable,
             }
             // Create the test fs tree node
-            var child_tree = try test_fs.allocator.create(TreeNode);
-            var child_name = try test_fs.allocator.alloc(u8, name.len);
+            const child_tree = try test_fs.allocator.create(TreeNode);
+            const child_name = try test_fs.allocator.alloc(u8, name.len);
             std.mem.copy(u8, child_name, name);
             child_tree.* = .{
                 .val = child,
@@ -730,9 +730,9 @@ const TestFS = struct {
 pub fn testInitFs(allocator: Allocator) !*TestFS {
     const fs = try allocator.create(FileSystem);
     var testfs = try allocator.create(TestFS);
-    var root_node = try allocator.create(Node);
+    const root_node = try allocator.create(Node);
     root_node.* = .{ .Dir = .{ .fs = fs, .mount = null } };
-    var name = try allocator.alloc(u8, 4);
+    const name = try allocator.alloc(u8, 4);
     std.mem.copy(u8, name, "root");
     testfs.* = TestFS{
         .tree = .{
@@ -790,7 +790,7 @@ test "mount" {
     // Create a file within the mounted directory
     var test_file = try openFile("/mnt/123.txt", .CREATE_FILE);
     defer test_file.close();
-    try testing.expectEqual(@ptrCast(*const FileSystem, testfs2.fs), test_file.fs);
+    try testing.expectEqual(@as(*const FileSystem, @ptrCast(testfs2.fs)), test_file.fs);
     // This shouldn't be in the root fs
     try testing.expectEqual(@as(usize, 1), testfs.tree.children.items.len);
     try testing.expectEqual(@as(usize, 0), testfs.tree.children.items[0].children.items.len);
@@ -915,7 +915,7 @@ test "open" {
     try testing.expectEqual(tree.children.items.len, 0);
 
     // Creating a dir
-    var test_dir = try openDir("/def", .CREATE_DIR);
+    const test_dir = try openDir("/def", .CREATE_DIR);
     try testing.expectEqual(testfs.tree.children.items.len, 2);
     tree = testfs.tree.children.items[1];
     try testing.expect(tree.val.isDir());
@@ -955,7 +955,7 @@ test "read" {
     root = testfs.tree.val;
 
     var test_file = try openFile("/foo.txt", .CREATE_FILE);
-    var f_data = &testfs.tree.children.items[0].data;
+    const f_data = &testfs.tree.children.items[0].data;
     var str = "test123";
     f_data.* = try Allocator.dupe(testing.allocator, u8, str);
 
@@ -985,7 +985,7 @@ test "read" {
         try testing.expect(std.mem.eql(u8, str[0..0], buffer[0..length]));
     }
     // Try reading from a symlink
-    var test_link = try openSymlink("/link", "/foo.txt", .CREATE_SYMLINK);
+    const test_link = try openSymlink("/link", "/foo.txt", .CREATE_SYMLINK);
     try testing.expectEqual(test_link, "/foo.txt");
     var link_file = try openFile("/link", .NO_CREATION);
     {
@@ -1001,20 +1001,20 @@ test "write" {
     root = testfs.tree.val;
 
     var test_file = try openFile("/foo.txt", .CREATE_FILE);
-    var f_data = &testfs.tree.children.items[0].data;
+    const f_data = &testfs.tree.children.items[0].data;
     try testing.expectEqual(f_data.*, null);
 
-    var str = "test123";
+    const str = "test123";
     const length = try test_file.write(str);
     try testing.expect(std.mem.eql(u8, str, f_data.* orelse unreachable));
     try testing.expect(length == str.len);
 
     // Try writing to a symlink
-    var test_link = try openSymlink("/link", "/foo.txt", .CREATE_SYMLINK);
+    const test_link = try openSymlink("/link", "/foo.txt", .CREATE_SYMLINK);
     try testing.expectEqual(test_link, "/foo.txt");
     _ = try openFile("/link", .NO_CREATION);
 
-    var str2 = "test456";
+    const str2 = "test456";
     _ = try test_file.write(str2);
     try testing.expect(std.mem.eql(u8, str2, f_data.* orelse unreachable));
 }

@@ -67,7 +67,7 @@ const PciDevice = struct {
             .bus = self.bus,
             .device = self.device,
             .function = function,
-            .register_offset = @enumToInt(pci_reg),
+            .register_offset = @intFromEnum(pci_reg),
         };
     }
 
