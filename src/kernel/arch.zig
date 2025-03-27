@@ -8,6 +8,6 @@ pub const internals = if (is_test) @import("../../test/mock/kernel/arch_mock.zig
     else => unreachable,
 };
 
-test "" {
+test {
     _ = @import("arch/x86/arch.zig");
 }

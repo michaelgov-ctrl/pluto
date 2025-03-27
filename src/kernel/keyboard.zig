@@ -173,9 +173,12 @@ pub const Keyboard = struct {
     ///     True if the keyboard queue is full, else false
     ///
     pub fn isFull(self: *const Keyboard) bool {
-        var end_plus_one: QueueIndex = undefined;
+        //var end_plus_one: QueueIndex = undefined;
         // This is a circular queue so overflow is allowed
-        _ = @addWithOverflow(QueueIndex, self.queue_end, 1, &end_plus_one);
+        //_ = @addWithOverflow(QueueIndex, self.queue_end, 1, &end_plus_one);
+        // https://ziglang.org/download/0.11.0/release-notes.html#Overflow-Builtins-Return-Tuples
+        const res = @addWithOverflow(self.queue_end, 1);
+        const end_plus_one = res[0];
         return end_plus_one == self.queue_front;
     }
 
@@ -192,7 +195,9 @@ pub const Keyboard = struct {
     pub fn writeKey(self: *Keyboard, key: KeyAction) bool {
         if (!self.isFull()) {
             self.queue[self.queue_end] = key;
-            _ = @addWithOverflow(QueueIndex, self.queue_end, 1, &self.queue_end);
+            //_ = @addWithOverflow(QueueIndex, self.queue_end, 1, &self.queue_end);
+            const res = @addWithOverflow(self.queue_end, 1);
+            self.queue_end = res[0];
             return true;
         }
         return false;
@@ -210,7 +215,9 @@ pub const Keyboard = struct {
     pub fn readKey(self: *Keyboard) ?KeyAction {
         if (self.isEmpty()) return null;
         const key = self.queue[self.queue_front];
-        _ = @addWithOverflow(QueueIndex, self.queue_front, 1, &self.queue_front);
+        //_ = @addWithOverflow(QueueIndex, self.queue_front, 1, &self.queue_front);
+        const res = @addWithOverflow(self.queue_front, 1);
+        self.queue_front = res[0];
         return key;
     }
 
@@ -262,16 +269,16 @@ pub const Keyboard = struct {
         comptime var i = 0;
         inline while (i < QUEUE_SIZE - 1) : (i += 1) {
             try testing.expectEqual(keyboard.writeKey(.{
-                .position = @intToEnum(KeyPosition, i),
+                .position = @enumFromInt(i),
                 .released = false,
             }), true);
-            try testing.expectEqual(keyboard.queue[i].position, @intToEnum(KeyPosition, i));
+            try testing.expectEqual(keyboard.queue[i].position, @enumFromInt(i));
             try testing.expectEqual(keyboard.queue_end, i + 1);
             try testing.expectEqual(keyboard.queue_front, 0);
         }
 
         try testing.expectEqual(keyboard.writeKey(.{
-            .position = @intToEnum(KeyPosition, 33),
+            .position = @enumFromInt(33),
             .released = false,
         }), false);
         try testing.expect(keyboard.isFull());
@@ -283,14 +290,14 @@ pub const Keyboard = struct {
         comptime var i = 0;
         inline while (i < QUEUE_SIZE - 1) : (i += 1) {
             try testing.expectEqual(keyboard.writeKey(.{
-                .position = @intToEnum(KeyPosition, i),
+                .position = @enumFromInt(i),
                 .released = false,
             }), true);
         }
 
         i = 0;
         inline while (i < QUEUE_SIZE - 1) : (i += 1) {
-            try testing.expectEqual(keyboard.readKey().?.position, @intToEnum(KeyPosition, i));
+            try testing.expectEqual(keyboard.readKey().?.position, @enumFromInt(i));
             try testing.expectEqual(keyboard.queue_end, QUEUE_SIZE - 1);
             try testing.expectEqual(keyboard.queue_front, i + 1);
         }
@@ -349,6 +356,6 @@ pub fn init(allocator: Allocator) Allocator.Error!?*Keyboard {
     return arch.initKeyboard(allocator);
 }
 
-test "" {
+test {
     _ = Keyboard.init();
 }

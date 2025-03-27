@@ -42,7 +42,7 @@ export var KERNEL_PHYSADDR_END: u32 = if (builtin.is_test) 0x14E000 else undefin
 
 // Just call the panic function, as this need to be in the root source file
 pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
-    @setCold(true);
+    @branchHint(.cold);
     panic_root.panic(error_return_trace, "{s}", .{msg});
 }
 
@@ -100,7 +100,7 @@ export fn kmain(boot_payload: arch.BootPayload) void {
 
     syscalls.init(kernel_heap.allocator());
     tty.init(kernel_heap.allocator(), boot_payload);
-    var arch_kb = keyboard.init(fixed_allocator.allocator()) catch |e| {
+    const arch_kb = keyboard.init(fixed_allocator.allocator()) catch |e| {
         panic_root.panic(@errorReturnTrace(), "Failed to inititalise keyboard: {}\n", .{e});
     };
     if (arch_kb) |kb| {
@@ -117,9 +117,9 @@ export fn kmain(boot_payload: arch.BootPayload) void {
     if (rd_module) |module| {
         // Load the ram disk
         const rd_len: usize = module.region.end - module.region.start;
-        const ramdisk_bytes = @intToPtr([*]u8, module.region.start)[0..rd_len];
+        const ramdisk_bytes = @as([*]u8, @ptrFromInt(module.region.start))[0..rd_len];
         var initrd_stream = std.io.fixedBufferStream(ramdisk_bytes);
-        var ramdisk_filesystem = initrd.InitrdFS.init(&initrd_stream, kernel_heap.allocator()) catch |e| {
+        const ramdisk_filesystem = initrd.InitrdFS.init(&initrd_stream, kernel_heap.allocator()) catch |e| {
             panic_root.panic(@errorReturnTrace(), "Failed to initialise ramdisk: {}\n", .{e});
         };
 
@@ -147,7 +147,7 @@ export fn kmain(boot_payload: arch.BootPayload) void {
     kmain_log.info("Creating init2\n", .{});
 
     // Create a init2 task
-    var stage2_task = task.Task.create(@ptrToInt(initStage2), true, kernel_vmm, kernel_heap.allocator(), true) catch |e| {
+    const stage2_task = task.Task.create(@intFromPtr(initStage2), true, kernel_vmm, kernel_heap.allocator(), true) catch |e| {
         panic_root.panic(@errorReturnTrace(), "Failed to create init stage 2 task: {}\n", .{e});
     };
     scheduler.scheduleTask(stage2_task, kernel_heap.allocator()) catch |e| {
@@ -196,6 +196,6 @@ fn initStage2() noreturn {
     arch.spinWait();
 }
 
-test "" {
+test {
     _ = @import("filesystem/fat32.zig");
 }

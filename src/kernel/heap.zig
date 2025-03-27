@@ -72,7 +72,7 @@ pub const FreeListAllocator = struct {
     ///     The pointer to the header created
     ///
     fn insertFreeHeader(at: usize, size: usize, next_free: ?*Header) *Header {
-        var node = @intToPtr(*Header, at);
+        const node: *Header = @ptrFromInt(at);
         node.* = Header.init(size, next_free);
         return node;
     }
@@ -106,15 +106,15 @@ pub const FreeListAllocator = struct {
         _ = alignment;
         _ = ret_addr;
         const size = std.math.max(mem.len, @sizeOf(Header));
-        const addr = @ptrToInt(mem.ptr);
+        const addr = @intFromPtr(mem.ptr);
         var header = insertFreeHeader(addr, size - @sizeOf(Header), null);
         if (self.first_free) |first| {
             var prev: ?*Header = null;
             // Find the previous free node
-            if (@ptrToInt(first) < addr) {
+            if (@intFromPtr(first) < addr) {
                 prev = first;
                 while (prev.?.next_free) |next| {
-                    if (@ptrToInt(next) > addr) break;
+                    if (@intFromPtr(next) > addr) break;
                     prev = next;
                 }
             }
@@ -125,7 +125,7 @@ pub const FreeListAllocator = struct {
 
             // Join with the next one until the next isn't a neighbour
             if (header.next_free) |next| {
-                if (@ptrToInt(next) == @ptrToInt(header) + header.size + @sizeOf(Header)) {
+                if (@intFromPtr(next) == @intFromPtr(header) + header.size + @sizeOf(Header)) {
                     header.size += next.size + @sizeOf(Header);
                     header.next_free = next.next_free;
                 }
@@ -196,15 +196,15 @@ pub const FreeListAllocator = struct {
     ///
     fn resize(self: *Self, old_mem: []u8, old_align: u29, new_size: usize, size_alignment: u29, ret_addr: usize) ?usize {
         // Suppress unused var warning
-        _ = old_align;
-        _ = ret_addr;
+        //_ = old_align;
+        //_ = ret_addr;
         if (new_size == 0) {
             self.free(old_mem, old_align, ret_addr);
             return 0;
         }
         if (new_size == old_mem.len) return new_size;
 
-        const end = @ptrToInt(old_mem.ptr) + old_mem.len;
+        const end = @intFromPtr(old_mem.ptr) + old_mem.len;
         var real_size = if (size_alignment > 1) std.mem.alignAllocLen(old_mem.len, new_size, size_alignment) else new_size;
 
         // Try to find the buffer's neighbour (if it's free) and the previous free node
@@ -213,11 +213,11 @@ pub const FreeListAllocator = struct {
         var next: ?*Header = null;
         var prev: ?*Header = null;
         while (free_node) |f| {
-            if (@ptrToInt(f) == end) {
+            if (@intFromPtr(f) == end) {
                 // This free node is right next to the node being freed so is its neighbour
                 next = f;
                 break;
-            } else if (@ptrToInt(f) > end) {
+            } else if (@intFromPtr(f) > end) {
                 // We've found a node past the node being freed so end early
                 break;
             }
@@ -249,7 +249,7 @@ pub const FreeListAllocator = struct {
             return null;
         } else {
             // Shrinking
-            var size_diff = old_mem.len - real_size;
+            const size_diff = old_mem.len - real_size;
             // If shrinking would leave less space than required for a new header,
             // or if shrinking would make the buffer too small, don't shrink
             if (size_diff < @sizeOf(Header)) {
@@ -261,7 +261,7 @@ pub const FreeListAllocator = struct {
             }
 
             // Create a new header for the space gained from shrinking
-            var new_next = insertFreeHeader(@ptrToInt(old_mem.ptr) + real_size, size_diff - @sizeOf(Header), if (prev) |p| p.next_free else self.first_free);
+            var new_next = insertFreeHeader(@intFromPtr(old_mem.ptr) + real_size, size_diff - @sizeOf(Header), if (prev) |p| p.next_free else self.first_free);
             self.registerFreeHeader(prev, new_next);
 
             // Join with the neighbour
@@ -340,7 +340,7 @@ pub const FreeListAllocator = struct {
                 continue;
             }
             // The address at which to allocate. This will clobber the header.
-            const addr = @ptrToInt(h);
+            const addr = @intFromPtr(h);
             var alignment_padding: usize = 0;
 
             if ((alignment > 1 and !std.mem.isAligned(addr, alignment)) or !std.mem.isAligned(addr, @alignOf(Header))) {
@@ -377,7 +377,7 @@ pub const FreeListAllocator = struct {
 
         if (alloc_to) |x| {
             var header = x;
-            var addr = @ptrToInt(header);
+            const addr = @intFromPtr(header);
             // Allocate to this node
             var alignment_padding: usize = 0;
             if (alignment > 1 and !std.mem.isAligned(addr, alignment)) {
@@ -386,7 +386,7 @@ pub const FreeListAllocator = struct {
 
             // If there is enough unused space to the right of this node, need to align that pointer to the alignment of the header
             if (header.size > real_size + alignment_padding) {
-                const at = @ptrToInt(header) + real_size + alignment_padding;
+                const at = @intFromPtr(header) + real_size + alignment_padding;
                 if (!std.mem.isAligned(at, @alignOf(Header))) {
                     alignment_padding += @alignOf(Header) - (at % @alignOf(Header));
                 }
@@ -397,7 +397,7 @@ pub const FreeListAllocator = struct {
                 // Since the header's address is going to be reused for the smaller one being created, backup the header to its new position
                 header = insertFreeHeader(addr + alignment_padding, header.size - alignment_padding, header.next_free);
 
-                var left = insertFreeHeader(addr, alignment_padding - @sizeOf(Header), header.next_free);
+                const left = insertFreeHeader(addr, alignment_padding - @sizeOf(Header), header.next_free);
                 // The previous should link to the new one instead
                 self.registerFreeHeader(prev, left);
                 prev = left;
@@ -406,11 +406,11 @@ pub const FreeListAllocator = struct {
 
             // If there is enough unused space to the right of this node then create a smaller node
             if (header.size > real_size + alignment_padding) {
-                header.next_free = insertFreeHeader(@ptrToInt(header) + real_size + alignment_padding, header.size - real_size - alignment_padding, header.next_free);
+                header.next_free = insertFreeHeader(@intFromPtr(header) + real_size + alignment_padding, header.size - real_size - alignment_padding, header.next_free);
             }
             self.registerFreeHeader(prev, header.next_free);
 
-            return @intToPtr([*]u8, @ptrToInt(header))[0..std.mem.alignAllocLen(size, size, size_alignment)];
+            return @as([*]u8, @ptrFromInt(@intFromPtr(header)))[0..std.mem.alignAllocLen(size, size, size_alignment)];
         }
 
         return Allocator.Error.OutOfMemory;
@@ -418,11 +418,11 @@ pub const FreeListAllocator = struct {
 
     test "init" {
         const size = 1024;
-        var region = try testing.allocator.alloc(u8, size);
+        const region = try testing.allocator.alloc(u8, size);
         defer testing.allocator.free(region);
-        var free_list = &(try FreeListAllocator.init(@ptrToInt(region.ptr), size));
+        const free_list = &(try FreeListAllocator.init(@intFromPtr(region.ptr), size));
 
-        var header = @intToPtr(*FreeListAllocator.Header, @ptrToInt(region.ptr));
+        const header: *FreeListAllocator.Header = @ptrFromInt(@intFromPtr(region.ptr));
         try testing.expectEqual(header, free_list.first_free.?);
         try testing.expectEqual(header.next_free, null);
         try testing.expectEqual(header.size, size - @sizeOf(Header));
@@ -432,19 +432,19 @@ pub const FreeListAllocator = struct {
 
     test "alloc" {
         const size = 1024;
-        var region = try testing.allocator.alloc(u8, size);
+        const region = try testing.allocator.alloc(u8, size);
         defer testing.allocator.free(region);
-        const start = @ptrToInt(region.ptr);
+        const start = @intFromPtr(region.ptr);
         var free_list = &(try FreeListAllocator.init(start, size));
 
         std.debug.print("", .{});
 
         const alloc0 = try free_list.alloc(64, 0, 0, @returnAddress());
-        const alloc0_addr = @ptrToInt(alloc0.ptr);
+        const alloc0_addr = @intFromPtr(alloc0.ptr);
         // Should be at the start of the heap
         try testing.expectEqual(alloc0_addr, start);
         // The allocation should have produced a node on the right of the allocation
-        var header = @intToPtr(*Header, start + 64);
+        var header: *Header = @ptrFromInt(start + 64);
         try testing.expectEqual(header.size, size - 64 - @sizeOf(Header));
         try testing.expectEqual(header.next_free, null);
         try testing.expectEqual(free_list.first_free, header);
@@ -453,38 +453,38 @@ pub const FreeListAllocator = struct {
 
         // 64 bytes aligned to 4 bytes
         const alloc1 = try free_list.alloc(64, 4, 0, @returnAddress());
-        const alloc1_addr = @ptrToInt(alloc1.ptr);
+        const alloc1_addr = @intFromPtr(alloc1.ptr);
         const alloc1_end = alloc1_addr + alloc1.len;
         // Should be to the right of the first allocation, with some alignment padding in between
         const alloc0_end = alloc0_addr + alloc0.len;
         try testing.expect(alloc0_end <= alloc1_addr);
         try testing.expectEqual(std.mem.alignForward(alloc0_end, 4), alloc1_addr);
         // It should have produced a node on the right
-        header = @intToPtr(*Header, alloc1_end);
+        header = @as(*Header, @ptrFromInt(alloc1_end));
         try testing.expectEqual(header.size, size - (alloc1_end - start) - @sizeOf(Header));
         try testing.expectEqual(header.next_free, null);
         try testing.expectEqual(free_list.first_free, header);
 
         const alloc2 = try free_list.alloc(64, 256, 0, @returnAddress());
-        const alloc2_addr = @ptrToInt(alloc2.ptr);
+        const alloc2_addr = @intFromPtr(alloc2.ptr);
         const alloc2_end = alloc2_addr + alloc2.len;
         try testing.expect(alloc1_end < alloc2_addr);
         // There should be a free node to the right of alloc2
-        const second_header = @intToPtr(*Header, alloc2_end);
+        const second_header: *Header = @ptrFromInt(alloc2_end);
         try testing.expectEqual(second_header.size, size - (alloc2_end - start) - @sizeOf(Header));
         try testing.expectEqual(second_header.next_free, null);
         // There should be a free node in between alloc1 and alloc2 due to the large alignment padding (depends on the allocation by the testing allocator, hence the check)
         if (alloc2_addr - alloc1_end >= @sizeOf(Header)) {
-            header = @intToPtr(*Header, alloc1_end);
+            header = @as(*Header, @ptrFromInt(alloc1_end));
             try testing.expectEqual(free_list.first_free, header);
             try testing.expectEqual(header.next_free, second_header);
         }
 
         // Try allocating something smaller than @sizeOf(Header). This should scale up to @sizeOf(Header)
-        var alloc3 = try free_list.alloc(1, 0, 0, @returnAddress());
-        const alloc3_addr = @ptrToInt(alloc3.ptr);
+        const alloc3 = try free_list.alloc(1, 0, 0, @returnAddress());
+        const alloc3_addr = @intFromPtr(alloc3.ptr);
         const alloc3_end = alloc3_addr + @sizeOf(Header);
-        const header2 = @intToPtr(*Header, alloc3_end);
+        const header2: *Header = @ptrFromInt(alloc3_end);
         // The new free node on the right should be the first one free
         try testing.expectEqual(free_list.first_free, header2);
         // And it should point to the free node on the right of alloc2
@@ -495,10 +495,10 @@ pub const FreeListAllocator = struct {
         try testing.expectError(Allocator.Error.OutOfMemory, free_list.alloc(remaining_size + 1, 0, 0, @returnAddress()));
 
         // Alloc a non aligned to header
-        var alloc4 = try free_list.alloc(13, 1, 0, @returnAddress());
-        const alloc4_addr = @ptrToInt(alloc4.ptr);
+        const alloc4 = try free_list.alloc(13, 1, 0, @returnAddress());
+        const alloc4_addr = @intFromPtr(alloc4.ptr);
         const alloc4_end = alloc4_addr + std.mem.alignForward(13, @alignOf(Header));
-        const header3 = @intToPtr(*Header, alloc4_end);
+        const header3: *Header = @ptrFromInt(alloc4_end);
 
         // We should still have a length of 13
         try testing.expectEqual(alloc4.len, 13);
@@ -511,24 +511,24 @@ pub const FreeListAllocator = struct {
 
     test "free" {
         const size = 1024;
-        var region = try testing.allocator.alloc(u8, size);
+        const region = try testing.allocator.alloc(u8, size);
         defer testing.allocator.free(region);
-        const start = @ptrToInt(region.ptr);
+        const start = @intFromPtr(region.ptr);
         var free_list = &(try FreeListAllocator.init(start, size));
 
-        var alloc0 = try free_list.alloc(128, 0, 0, @returnAddress());
-        var alloc1 = try free_list.alloc(256, 0, 0, @returnAddress());
-        var alloc2 = try free_list.alloc(64, 0, 0, @returnAddress());
+        const alloc0 = try free_list.alloc(128, 0, 0, @returnAddress());
+        const alloc1 = try free_list.alloc(256, 0, 0, @returnAddress());
+        const alloc2 = try free_list.alloc(64, 0, 0, @returnAddress());
 
         // There should be a single free node after alloc2
-        const free_node3 = @intToPtr(*Header, @ptrToInt(alloc2.ptr) + alloc2.len);
+        const free_node3: *Header = @ptrFromInt(@intFromPtr(alloc2.ptr) + alloc2.len);
         try testing.expectEqual(free_list.first_free, free_node3);
         try testing.expectEqual(free_node3.size, size - alloc0.len - alloc1.len - alloc2.len - @sizeOf(Header));
         try testing.expectEqual(free_node3.next_free, null);
 
         free_list.free(alloc0, 0, 0);
         // There should now be two free nodes. One where alloc0 was and another after alloc2
-        const free_node0 = @intToPtr(*Header, start);
+        const free_node0: *Header = @ptrFromInt(start);
         try testing.expectEqual(free_list.first_free, free_node0);
         try testing.expectEqual(free_node0.size, alloc0.len - @sizeOf(Header));
         try testing.expectEqual(free_node0.next_free, free_node3);
@@ -549,12 +549,12 @@ pub const FreeListAllocator = struct {
     test "resize" {
         std.debug.print("", .{});
         const size = 1024;
-        var region = try testing.allocator.alloc(u8, size);
+        const region = try testing.allocator.alloc(u8, size);
         defer testing.allocator.free(region);
-        const start = @ptrToInt(region.ptr);
+        const start = @intFromPtr(region.ptr);
         var free_list = &(try FreeListAllocator.init(start, size));
 
-        var alloc0 = try free_list.alloc(128, 0, 0, @returnAddress());
+        const alloc0 = try free_list.alloc(128, 0, 0, @returnAddress());
         var alloc1 = try free_list.alloc(256, 0, 0, @returnAddress());
 
         // Expanding alloc0 should fail as alloc1 is right next to it
@@ -564,7 +564,7 @@ pub const FreeListAllocator = struct {
         try testing.expectEqual(free_list.resize(alloc1, 0, 512, 0, @returnAddress()), 512);
         alloc1 = alloc1.ptr[0..512];
         // And there should be a free node on the right of it
-        var header = @intToPtr(*Header, @ptrToInt(alloc1.ptr) + 512);
+        var header: *Header = @ptrFromInt(@intFromPtr(alloc1.ptr) + 512);
         try testing.expectEqual(header.size, size - 128 - 512 - @sizeOf(Header));
         try testing.expectEqual(header.next_free, null);
         try testing.expectEqual(free_list.first_free, header);
@@ -572,7 +572,7 @@ pub const FreeListAllocator = struct {
         // Shrinking alloc1 should produce a big free node on the right
         try testing.expectEqual(free_list.resize(alloc1, 0, 128, 0, @returnAddress()), 128);
         alloc1 = alloc1.ptr[0..128];
-        header = @intToPtr(*Header, @ptrToInt(alloc1.ptr) + 128);
+        header = @as(*Header, @ptrFromInt(@intFromPtr(alloc1.ptr) + 128));
         try testing.expectEqual(header.size, size - 128 - 128 - @sizeOf(Header));
         try testing.expectEqual(header.next_free, null);
         try testing.expectEqual(free_list.first_free, header);
@@ -603,7 +603,7 @@ pub const FreeListAllocator = struct {
 pub fn init(comptime vmm_payload: type, heap_vmm: *vmm.VirtualMemoryManager(vmm_payload), attributes: vmm.Attributes, heap_size: usize) (FreeListAllocator.Error || Allocator.Error)!FreeListAllocator {
     log.info("Init\n", .{});
     defer log.info("Done\n", .{});
-    var heap_start = (try heap_vmm.alloc(heap_size / vmm.BLOCK_SIZE, null, attributes)) orelse panic(null, "Not enough contiguous virtual memory blocks to allocate to kernel heap\n", .{});
+    const heap_start = (try heap_vmm.alloc(heap_size / vmm.BLOCK_SIZE, null, attributes)) orelse panic(null, "Not enough contiguous virtual memory blocks to allocate to kernel heap\n", .{});
     // This free call cannot error as it is guaranteed to have been allocated above
     errdefer heap_vmm.free(heap_start) catch unreachable;
     return try FreeListAllocator.init(heap_start, heap_size);

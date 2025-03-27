@@ -156,7 +156,7 @@ pub fn build(b: *Builder) !void {
         try qemu_args_al.append("none");
     }
 
-    var qemu_args = qemu_args_al.toOwnedSlice();
+    const qemu_args = qemu_args_al.toOwnedSlice();
 
     const rt_step = RuntimeStep.create(b, test_mode, qemu_args);
     rt_step.step.dependOn(&make_iso.step);
@@ -217,7 +217,7 @@ const Fat32BuilderStep = struct {
     ///     Fat32.Error     - If there was an error creating the FAT image. This will be invalid options.
     ///
     fn make(step: *Step) (error{EndOfStream} || File.OpenError || File.ReadError || File.WriteError || File.SeekError || Fat32.Error)!void {
-        const self = @fieldParentPtr(Fat32BuilderStep, "step", step);
+        const self: *Fat32BuilderStep = @fieldParentPtr(Fat32BuilderStep, step);
         // Open the out file
         const image = try std.fs.cwd().createFile(self.out_file_path, .{ .read = true });
 
@@ -293,7 +293,7 @@ const RamdiskStep = struct {
 
         // First write the number of files/headers
         std.debug.assert(self.files.len < std.math.maxInt(Usize));
-        try ramdisk.writer().writeInt(Usize, @truncate(Usize, self.files.len), endian);
+        try ramdisk.writer().writeInt(Usize, @truncate(self.files.len), endian);
         var current_offset: usize = 0;
         for (self.files) |file_path| {
             // Open, and read the file. Can get the size from this as well
@@ -305,14 +305,14 @@ const RamdiskStep = struct {
             // Write the header and file content to the ramdisk
             // Name length
             std.debug.assert(file_path[file_name_index..].len < std.math.maxInt(Usize));
-            try ramdisk.writer().writeInt(Usize, @truncate(Usize, file_path[file_name_index..].len), endian);
+            try ramdisk.writer().writeInt(Usize, @truncate(file_path[file_name_index..].len), endian);
 
             // Name
             try ramdisk.writer().writeAll(file_path[file_name_index..]);
 
             // Length
             std.debug.assert(file_content.len < std.math.maxInt(Usize));
-            try ramdisk.writer().writeInt(Usize, @truncate(Usize, file_content.len), endian);
+            try ramdisk.writer().writeInt(Usize, @truncate(file_content.len), endian);
 
             // File contest
             try ramdisk.writer().writeAll(file_content);
@@ -333,7 +333,7 @@ const RamdiskStep = struct {
     ///     Errors for opening, reading and writing to and from files and for allocating memory.
     ///
     fn make(step: *Step) Error!void {
-        const self = @fieldParentPtr(RamdiskStep, "step", step);
+        const self: *RamdiskStep = @fieldParentPtr(RamdiskStep, step);
         switch (self.target.getCpuArch()) {
             .i386 => try writeRamdisk(u32, self),
             else => unreachable,

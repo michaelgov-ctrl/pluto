@@ -92,7 +92,7 @@ pub const Task = struct {
     ///                   be freed on return.
     ///
     pub fn create(entry_point: EntryPoint, kernel: bool, task_vmm: *vmm.VirtualMemoryManager(arch.VmmPayload), allocator: Allocator, alloc_kernel_stack: bool) Allocator.Error!*Task {
-        var task = try allocator.create(Task);
+        const task = try allocator.create(Task);
         errdefer allocator.destroy(task);
 
         const pid = allocatePid();
@@ -101,14 +101,14 @@ pub const Task = struct {
         var k_stack = if (alloc_kernel_stack) try allocator.alloc(usize, STACK_SIZE) else &[_]usize{};
         errdefer if (alloc_kernel_stack) allocator.free(k_stack);
 
-        var u_stack = if (kernel) &[_]usize{} else try allocator.alloc(usize, STACK_SIZE);
+        const u_stack = if (kernel) &[_]usize{} else try allocator.alloc(usize, STACK_SIZE);
         errdefer if (!kernel) allocator.free(u_stack);
 
         task.* = .{
             .pid = pid,
             .kernel_stack = k_stack,
             .user_stack = u_stack,
-            .stack_pointer = if (!alloc_kernel_stack) 0 else @ptrToInt(&k_stack[STACK_SIZE - 1]),
+            .stack_pointer = if (!alloc_kernel_stack) 0 else @intFromPtr(&k_stack[STACK_SIZE - 1]),
             .kernel = kernel,
             .vmm = task_vmm,
             .file_handles = FileHandleBitmap.init(null, null) catch unreachable,
@@ -128,7 +128,7 @@ pub const Task = struct {
         var i: usize = 0;
         errdefer {
             // Free the previously allocated addresses
-            for (program_elf.section_headers) |header, j| {
+            for (program_elf.section_headers, 0..) |header, j| {
                 if (j >= i)
                     break;
                 if ((header.flags & elf.SECTION_ALLOCATABLE) != 0)
@@ -163,7 +163,7 @@ pub const Task = struct {
         freePid(self.pid) catch |e| panic(@errorReturnTrace(), "Failed to free task's PID ({}): {}\n", .{ self.pid, e });
         // We need to check that the the stack has been allocated as task 0 (init) won't have a
         // stack allocated as this in the linker script
-        if (@ptrToInt(self.kernel_stack.ptr) != @ptrToInt(&KERNEL_STACK_START) and self.kernel_stack.len > 0) {
+        if (@intFromPtr(self.kernel_stack.ptr) != @intFromPtr(&KERNEL_STACK_START) and self.kernel_stack.len > 0) {
             allocator.free(self.kernel_stack);
         }
         if (!self.kernel) {
@@ -217,7 +217,7 @@ pub const Task = struct {
     ///
     pub fn addVFSHandle(self: *Self, node: *vfs.Node) std.mem.Allocator.Error!?Handle {
         if (self.file_handles.setFirstFree()) |handle| {
-            const real_handle = @intCast(Handle, handle);
+            const real_handle: Handle = @intCast(handle);
             try self.file_handle_mapping.put(real_handle, node);
             return real_handle;
         }
@@ -299,8 +299,8 @@ test "create out of memory for task" {
     // Set the global allocator
     var fa = FailingAllocator.init(testing_allocator, 0);
 
-    try expectError(error.OutOfMemory, Task.create(@ptrToInt(test_fn1), true, undefined, fa.allocator(), true));
-    try expectError(error.OutOfMemory, Task.create(@ptrToInt(test_fn1), false, undefined, fa.allocator(), true));
+    try expectError(error.OutOfMemory, Task.create(@intFromPtr(test_fn1), true, undefined, fa.allocator(), true));
+    try expectError(error.OutOfMemory, Task.create(@intFromPtr(test_fn1), false, undefined, fa.allocator(), true));
 
     // Make sure any memory allocated is freed
     try expectEqual(fa.allocated_bytes, fa.freed_bytes);
@@ -315,8 +315,8 @@ test "create out of memory for stack" {
     // Set the global allocator
     var fa = FailingAllocator.init(testing_allocator, 1);
 
-    try expectError(error.OutOfMemory, Task.create(@ptrToInt(test_fn1), true, undefined, fa.allocator(), true));
-    try expectError(error.OutOfMemory, Task.create(@ptrToInt(test_fn1), false, undefined, fa.allocator(), true));
+    try expectError(error.OutOfMemory, Task.create(@intFromPtr(test_fn1), true, undefined, fa.allocator(), true));
+    try expectError(error.OutOfMemory, Task.create(@intFromPtr(test_fn1), false, undefined, fa.allocator(), true));
 
     // Make sure any memory allocated is freed
     try expectEqual(fa.allocated_bytes, fa.freed_bytes);
@@ -328,7 +328,7 @@ test "create out of memory for stack" {
 }
 
 test "create expected setup" {
-    var task = try Task.create(@ptrToInt(test_fn1), true, undefined, std.testing.allocator, true);
+    var task = try Task.create(@intFromPtr(test_fn1), true, undefined, std.testing.allocator, true);
     defer task.destroy(std.testing.allocator);
 
     // Will allocate the first PID 0
@@ -336,7 +336,7 @@ test "create expected setup" {
     try expectEqual(task.kernel_stack.len, STACK_SIZE);
     try expectEqual(task.user_stack.len, 0);
 
-    var user_task = try Task.create(@ptrToInt(test_fn1), false, undefined, std.testing.allocator, true);
+    var user_task = try Task.create(@intFromPtr(test_fn1), false, undefined, std.testing.allocator, true);
     defer user_task.destroy(std.testing.allocator);
     try expectEqual(user_task.pid, 1);
     try expectEqual(user_task.user_stack.len, STACK_SIZE);
@@ -346,10 +346,10 @@ test "create expected setup" {
 test "destroy cleans up" {
     // This used the leak detector allocator in testing
     // So if any alloc were not freed, this will fail the test
-    var allocator = std.testing.allocator;
+    const allocator = std.testing.allocator;
 
-    var task = try Task.create(@ptrToInt(test_fn1), true, undefined, allocator, true);
-    var user_task = try Task.create(@ptrToInt(test_fn1), false, undefined, allocator, true);
+    var task = try Task.create(@intFromPtr(test_fn1), true, undefined, allocator, true);
+    var user_task = try Task.create(@intFromPtr(test_fn1), false, undefined, allocator, true);
 
     task.destroy(allocator);
     user_task.destroy(allocator);
@@ -361,39 +361,39 @@ test "destroy cleans up" {
 }
 
 test "Multiple create" {
-    var task1 = try Task.create(@ptrToInt(test_fn1), true, undefined, std.testing.allocator, true);
-    var task2 = try Task.create(@ptrToInt(test_fn1), true, undefined, std.testing.allocator, true);
+    var task1 = try Task.create(@intFromPtr(test_fn1), true, undefined, std.testing.allocator, true);
+    var task2 = try Task.create(@intFromPtr(test_fn1), true, undefined, std.testing.allocator, true);
 
     try expectEqual(task1.pid, 0);
     try expectEqual(task2.pid, 1);
     try expectEqual(all_pids.bitmaps[0], 3);
-    for (all_pids.bitmaps) |bmp, i| {
+    for (all_pids.bitmaps, 0..) |bmp, i| {
         if (i > 0) try expectEqual(bmp, 0);
     }
 
     task1.destroy(std.testing.allocator);
 
     try expectEqual(all_pids.bitmaps[0], 2);
-    for (all_pids.bitmaps) |bmp, i| {
+    for (all_pids.bitmaps, 0..) |bmp, i| {
         if (i > 0) try expectEqual(bmp, 0);
     }
 
-    var task3 = try Task.create(@ptrToInt(test_fn1), true, undefined, std.testing.allocator, true);
+    var task3 = try Task.create(@intFromPtr(test_fn1), true, undefined, std.testing.allocator, true);
 
     try expectEqual(task3.pid, 0);
     try expectEqual(all_pids.bitmaps[0], 3);
-    for (all_pids.bitmaps) |bmp, i| {
+    for (all_pids.bitmaps, 0..) |bmp, i| {
         if (i > 0) try expectEqual(bmp, 0);
     }
 
     task2.destroy(std.testing.allocator);
     task3.destroy(std.testing.allocator);
 
-    var user_task = try Task.create(@ptrToInt(test_fn1), false, undefined, std.testing.allocator, true);
+    var user_task = try Task.create(@intFromPtr(test_fn1), false, undefined, std.testing.allocator, true);
 
     try expectEqual(user_task.pid, 0);
     try expectEqual(all_pids.bitmaps[0], 1);
-    for (all_pids.bitmaps) |bmp, i| {
+    for (all_pids.bitmaps, 0..) |bmp, i| {
         if (i > 0) try expectEqual(bmp, 0);
     }
 
@@ -466,7 +466,7 @@ test "createFromElf clean-up" {
 
     // Test clean-up
     // Test OutOfMemory
-    var allocator2 = std.testing.FailingAllocator.init(allocator, 0).allocator();
+    const allocator2 = std.testing.FailingAllocator.init(allocator, 0).allocator();
     try std.testing.expectError(std.mem.Allocator.Error.OutOfMemory, Task.createFromElf(the_elf, true, &the_vmm, allocator2));
     try std.testing.expectEqual(all_pids.num_free_entries, all_pids.num_entries - 1);
     // Test AlreadyAllocated
@@ -487,8 +487,8 @@ test "createFromElf clean-up" {
 }
 
 test "create doesn't allocate kernel stack" {
-    var allocator = std.testing.allocator;
-    const task = try Task.create(@ptrToInt(test_fn1), true, undefined, allocator, false);
+    const allocator = std.testing.allocator;
+    const task = try Task.create(@intFromPtr(test_fn1), true, undefined, allocator, false);
     defer task.destroy(allocator);
     try std.testing.expectEqualSlices(usize, task.kernel_stack, &[_]usize{});
     try std.testing.expectEqual(task.stack_pointer, 0);

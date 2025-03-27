@@ -347,7 +347,8 @@ pub const SectionHeader = packed struct {
     pub fn getName(self: Self, elf: Elf) []const u8 {
         // section_name_index has already been checked so will exist
         const string_table = elf.section_data[elf.header.section_name_index] orelse unreachable;
-        const str = @ptrCast([*]const u8, string_table.ptr + self.name_offset);
+        //const str = @ptrCast([*]const u8, string_table.ptr + self.name_offset);
+        const str: [*]const u8 = @ptrCast(string_table.ptr + self.name_offset);
         var len: usize = 0;
         while (str[len] != 0) : (len += 1) {}
         const name = str[0..len];
@@ -406,20 +407,21 @@ pub const Elf = struct {
         if (header.section_name_index >= header.section_header_entries)
             return Error.WrongStringTableIndex;
 
-        var program_segments = try allocator.alloc(ProgramHeader, header.program_header_entries);
+        const program_segments = try allocator.alloc(ProgramHeader, header.program_header_entries);
         errdefer allocator.free(program_segments);
         var seg_offset = header.program_header_offset;
         for (program_segments) |*segment| {
-            segment.* = @ptrCast(*const ProgramHeader, elf_data.ptr + seg_offset).*;
+            //segment.* = @ptrCast(*const ProgramHeader, elf_data.ptr + seg_offset).*;
+            segment.* = @ptrCast(elf_data.ptr + seg_offset);
             seg_offset += header.program_header_entry_size;
         }
 
-        var section_headers = try allocator.alloc(SectionHeader, header.section_header_entries);
+        const section_headers = try allocator.alloc(SectionHeader, header.section_header_entries);
         errdefer allocator.free(section_headers);
         var section_data = try allocator.alloc(?[]const u8, header.section_header_entries);
         errdefer allocator.free(section_data);
         var sec_offset = header.section_header_offset;
-        for (section_headers) |*section, i| {
+        for (section_headers, 0..) |*section, i| {
             section.* = std.mem.bytesToValue(SectionHeader, (elf_data.ptr + sec_offset)[0..@sizeOf(SectionHeader)]);
             section_data[i] = if (section.section_type.hasData()) elf_data[section.offset .. section.offset + section.size] else null;
             sec_offset += header.section_header_entry_size;
@@ -455,13 +457,15 @@ pub const Error = error{
 };
 
 fn testSetHeader(data: []u8, header: Header) void {
-    std.mem.copy(u8, data, @ptrCast([*]const u8, &header)[0..@sizeOf(Header)]);
+    //std.mem.copy(u8, data, @ptrCast([*]const u8, &header)[0..@sizeOf(Header)]);
+    std.mem.copy(u8, data, @as([*]const u8, @ptrCast(&header))[0..@sizeOf(Header)]);
 }
 
 fn testSetSection(data: []u8, header: SectionHeader, idx: usize) void {
     const offset = @sizeOf(Header) + @sizeOf(SectionHeader) * idx;
-    var dest = data[offset .. offset + @sizeOf(SectionHeader)];
-    std.mem.copy(u8, dest, @ptrCast([*]const u8, &header)[0..@sizeOf(SectionHeader)]);
+    const dest = data[offset .. offset + @sizeOf(SectionHeader)];
+    //std.mem.copy(u8, dest, @ptrCast([*]const u8, &header)[0..@sizeOf(SectionHeader)]);
+    std.mem.copy(u8, dest, @as([*]const u8, @ptrCast(&header))[0..@sizeOf(SectionHeader)]);
 }
 
 pub fn testInitData(allocator: std.mem.Allocator, section_name: []const u8, string_section_name: []const u8, file_type: Type, entry_address: usize, flags: u32, section_flags: u32, strings_flags: u32, section_address: usize, strings_address: usize) ![]u8 {
@@ -473,7 +477,7 @@ pub fn testInitData(allocator: std.mem.Allocator, section_name: []const u8, stri
     const data_size = header_size + s_header_size + s_header_size + section_name.len + 1 + string_section_name.len + 1 + section_size;
     var data = try allocator.alloc(u8, data_size);
 
-    var header = Header{
+    const header = Header{
         .magic_number = 0x464C457F,
         .data_size = switch (@bitSizeOf(usize)) {
             32 => .ThirtyTwoBit,
@@ -512,7 +516,7 @@ pub fn testInitData(allocator: std.mem.Allocator, section_name: []const u8, stri
     testSetHeader(data, header);
     data_offset += header_size;
 
-    var section_header = SectionHeader{
+    const section_header = SectionHeader{
         .name_offset = 0,
         .section_type = .ProgramData,
         .flags = section_flags,
@@ -527,8 +531,8 @@ pub fn testInitData(allocator: std.mem.Allocator, section_name: []const u8, stri
     testSetSection(data, section_header, 0);
     data_offset += s_header_size;
 
-    var string_section_header = SectionHeader{
-        .name_offset = @intCast(u32, section_name.len) + 1,
+    const string_section_header = SectionHeader{
+        .name_offset = @as(u32, @intCast(section_name.len)) + 1,
         .section_type = .StringTable,
         .flags = strings_flags,
         .virtual_address = strings_address,
@@ -561,7 +565,7 @@ test "init" {
     const section_name = "some_section";
     const string_section_name = "strings";
     const is_32_bit = @bitSizeOf(usize) == 32;
-    var data = try testInitData(testing.allocator, section_name, string_section_name, .Executable, 0, 0, 123, 789, 456, 012);
+    const data = try testInitData(testing.allocator, section_name, string_section_name, .Executable, 0, 0, 123, 789, 456, 12);
     defer testing.allocator.free(data);
     const elf = try Elf.init(data, builtin.cpu.arch, testing.allocator);
     defer elf.deinit();
@@ -590,11 +594,11 @@ test "init" {
     try testing.expectEqual(section_name.len + 1, section_two.name_offset);
     try testing.expectEqual(SectionType.StringTable, section_two.section_type);
     try testing.expectEqual(@as(usize, 789), section_two.flags);
-    try testing.expectEqual(@as(usize, 012), section_two.virtual_address);
+    try testing.expectEqual(@as(usize, 12), section_two.virtual_address);
 
     try testing.expectEqual(@as(usize, 2), elf.section_data.len);
     try testing.expectEqual(elf.section_headers[0].size, elf.section_data[0].?.len);
-    for ("some_section" ++ [_]u8{0} ++ "strings" ++ [_]u8{0}) |char, i| {
+    for ("some_section" ++ [_]u8{0} ++ "strings" ++ [_]u8{0}, 0..) |char, i| {
         try testing.expectEqual(char, elf.section_data[1].?[i]);
     }
 
@@ -644,8 +648,8 @@ test "init" {
 
 test "getName" {
     // The entire ELF test data. The header, program header, two section headers and the section name (with the null terminator)
-    var section_name = "some_section";
-    var string_section_name = "strings";
+    const section_name = "some_section";
+    const string_section_name = "strings";
     const data = try testInitData(testing.allocator, section_name, string_section_name, .Executable, 0, undefined, undefined, undefined, undefined, undefined);
     defer testing.allocator.free(data);
     const elf = try Elf.init(data, builtin.cpu.arch, testing.allocator);
