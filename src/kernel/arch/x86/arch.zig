@@ -390,31 +390,31 @@ pub fn initMem(mb_info: BootPayload) Allocator.Error!MemProfile {
     log.info("Init\n", .{});
     defer log.info("Done\n", .{});
 
-    log.debug("KERNEL_ADDR_OFFSET:    0x{X}\n", .{@ptrToInt(&KERNEL_ADDR_OFFSET)});
-    log.debug("KERNEL_STACK_START:    0x{X}\n", .{@ptrToInt(&KERNEL_STACK_START)});
-    log.debug("KERNEL_STACK_END:      0x{X}\n", .{@ptrToInt(&KERNEL_STACK_END)});
-    log.debug("KERNEL_VADDR_START:    0x{X}\n", .{@ptrToInt(&KERNEL_VADDR_START)});
-    log.debug("KERNEL_VADDR_END:      0x{X}\n", .{@ptrToInt(&KERNEL_VADDR_END)});
-    log.debug("KERNEL_PHYSADDR_START: 0x{X}\n", .{@ptrToInt(&KERNEL_PHYSADDR_START)});
-    log.debug("KERNEL_PHYSADDR_END:   0x{X}\n", .{@ptrToInt(&KERNEL_PHYSADDR_END)});
+    log.debug("KERNEL_ADDR_OFFSET:    0x{X}\n", .{@intFromPtr(&KERNEL_ADDR_OFFSET)});
+    log.debug("KERNEL_STACK_START:    0x{X}\n", .{@intFromPtr(&KERNEL_STACK_START)});
+    log.debug("KERNEL_STACK_END:      0x{X}\n", .{@intFromPtr(&KERNEL_STACK_END)});
+    log.debug("KERNEL_VADDR_START:    0x{X}\n", .{@intFromPtr(&KERNEL_VADDR_START)});
+    log.debug("KERNEL_VADDR_END:      0x{X}\n", .{@intFromPtr(&KERNEL_VADDR_END)});
+    log.debug("KERNEL_PHYSADDR_START: 0x{X}\n", .{@intFromPtr(&KERNEL_PHYSADDR_START)});
+    log.debug("KERNEL_PHYSADDR_END:   0x{X}\n", .{@intFromPtr(&KERNEL_PHYSADDR_END)});
 
     const mods_count = mb_info.mods_count;
-    mem.ADDR_OFFSET = @ptrToInt(&KERNEL_ADDR_OFFSET);
+    mem.ADDR_OFFSET = @intFromPtr(&KERNEL_ADDR_OFFSET);
     const mmap_addr = mb_info.mmap_addr;
     const num_mmap_entries = mb_info.mmap_length / @sizeOf(multiboot.multiboot_memory_map_t);
 
     const allocator = mem.fixed_buffer_allocator.allocator();
     var reserved_physical_mem = std.ArrayList(mem.Range).init(allocator);
     var reserved_virtual_mem = std.ArrayList(mem.Map).init(allocator);
-    const mem_map = @intToPtr([*]multiboot.multiboot_memory_map_t, mmap_addr)[0..num_mmap_entries];
+    const mem_map = @as([*]multiboot.multiboot_memory_map_t, @ptrFromInt(mmap_addr))[0..num_mmap_entries];
 
     // Reserve the unavailable sections from the multiboot memory map
     for (mem_map) |entry| {
-        if (entry.@"type" != multiboot.MULTIBOOT_MEMORY_AVAILABLE) {
+        if (entry.type != multiboot.MULTIBOOT_MEMORY_AVAILABLE) {
             // If addr + len is greater than maxInt(usize) just ignore whatever comes after maxInt(usize) since it can't be addressed anyway
-            const end: usize = if (entry.addr > std.math.maxInt(usize) - entry.len) std.math.maxInt(usize) else @intCast(usize, entry.addr + entry.len);
+            const end: usize = if (entry.addr > std.math.maxInt(usize) - entry.len) std.math.maxInt(usize) else @intCast(entry.addr + entry.len);
             try reserved_physical_mem.append(.{
-                .start = @intCast(usize, entry.addr),
+                .start = @intCast(entry.addr),
                 .end = end,
             });
         }
@@ -422,8 +422,8 @@ pub fn initMem(mb_info: BootPayload) Allocator.Error!MemProfile {
 
     // Map the kernel code
     const kernel_virt = mem.Range{
-        .start = @ptrToInt(&KERNEL_VADDR_START),
-        .end = @ptrToInt(&KERNEL_STACK_START),
+        .start = @intFromPtr(&KERNEL_VADDR_START),
+        .end = @intFromPtr(&KERNEL_STACK_START),
     };
     const kernel_phy = mem.Range{
         .start = mem.virtToPhys(kernel_virt.start),
@@ -436,8 +436,8 @@ pub fn initMem(mb_info: BootPayload) Allocator.Error!MemProfile {
 
     // Map the multiboot info struct itself
     const mb_region = mem.Range{
-        .start = @ptrToInt(mb_info),
-        .end = @ptrToInt(mb_info) + @sizeOf(multiboot.multiboot_info_t),
+        .start = @intFromPtr(mb_info),
+        .end = @intFromPtr(mb_info) + @sizeOf(multiboot.multiboot_info_t),
     };
     const mb_physical = mem.Range{
         .start = mem.virtToPhys(mb_region.start),
@@ -463,7 +463,7 @@ pub fn initMem(mb_info: BootPayload) Allocator.Error!MemProfile {
     });
 
     // Map the boot modules
-    const boot_modules = @intToPtr([*]multiboot.multiboot_mod_list, mem.physToVirt(mb_info.mods_addr))[0..mods_count];
+    const boot_modules = @as([*]multiboot.multiboot_mod_list, @ptrFromInt(mem.physToVirt(mb_info.mods_addr)))[0..mods_count];
     var modules = std.ArrayList(mem.Module).init(allocator);
     for (boot_modules) |module| {
         const virtual = mem.Range{
@@ -476,7 +476,7 @@ pub fn initMem(mb_info: BootPayload) Allocator.Error!MemProfile {
         };
         try modules.append(.{
             .region = virtual,
-            .name = std.mem.span(mem.physToVirt(@intToPtr([*:0]u8, module.cmdline))),
+            .name = std.mem.span(mem.physToVirt(@ptrFromInt(module.cmdline))), //[*:0]u8,
         });
         try reserved_virtual_mem.append(.{
             .physical = physical,
@@ -486,8 +486,8 @@ pub fn initMem(mb_info: BootPayload) Allocator.Error!MemProfile {
 
     // Map the kernel stack
     const kernel_stack_virt = mem.Range{
-        .start = @ptrToInt(&KERNEL_STACK_START),
-        .end = @ptrToInt(&KERNEL_STACK_END),
+        .start = @intFromPtr(&KERNEL_STACK_START),
+        .end = @intFromPtr(&KERNEL_STACK_END),
     };
     const kernel_stack_phy = mem.Range{
         .start = mem.virtToPhys(kernel_stack_virt.start),
@@ -499,10 +499,10 @@ pub fn initMem(mb_info: BootPayload) Allocator.Error!MemProfile {
     });
 
     return MemProfile{
-        .vaddr_end = @ptrCast([*]u8, &KERNEL_VADDR_END),
-        .vaddr_start = @ptrCast([*]u8, &KERNEL_VADDR_START),
-        .physaddr_end = @ptrCast([*]u8, &KERNEL_PHYSADDR_END),
-        .physaddr_start = @ptrCast([*]u8, &KERNEL_PHYSADDR_START),
+        .vaddr_end = @ptrCast(&KERNEL_VADDR_END),
+        .vaddr_start = @ptrCast(&KERNEL_VADDR_START),
+        .physaddr_end = @ptrCast(&KERNEL_PHYSADDR_END),
+        .physaddr_start = @ptrCast(&KERNEL_PHYSADDR_START),
         // Total memory available including the initial 1MiB that grub doesn't include
         .mem_kb = mb_info.mem_upper + mb_info.mem_lower + 1024,
         .modules = modules.items,
@@ -550,7 +550,7 @@ pub fn initTask(task: *Task, entry_point: usize, allocator: Allocator, set_up_st
     // Set up everything as a kernel task
     task.vmm.payload = &paging.kernel_directory;
 
-    var stack = &task.kernel_stack;
+    const stack = &task.kernel_stack;
     const kernel_stack_bottom = if (!set_up_stack) 0 else if (task.kernel) task.kernel_stack.len - 18 else task.kernel_stack.len - 20;
     if (set_up_stack) {
         const data_offset = if (task.kernel) gdt.KERNEL_DATA_OFFSET else gdt.USER_DATA_OFFSET | 0b11;
@@ -558,7 +558,7 @@ pub fn initTask(task: *Task, entry_point: usize, allocator: Allocator, set_up_st
         const code_offset = if (task.kernel) gdt.KERNEL_CODE_OFFSET else gdt.USER_CODE_OFFSET | 0b11;
         // Ring switches push and pop two extra values on interrupt: user_esp and user_ss
 
-        stack.*[kernel_stack_bottom] = mem.virtToPhys(@ptrToInt(&paging.kernel_directory));
+        stack.*[kernel_stack_bottom] = mem.virtToPhys(@intFromPtr(&paging.kernel_directory));
         stack.*[kernel_stack_bottom + 1] = data_offset; // gs
         stack.*[kernel_stack_bottom + 2] = data_offset; // fs
         stack.*[kernel_stack_bottom + 3] = data_offset; // es
@@ -567,7 +567,7 @@ pub fn initTask(task: *Task, entry_point: usize, allocator: Allocator, set_up_st
         stack.*[kernel_stack_bottom + 5] = 0; // edi
         stack.*[kernel_stack_bottom + 6] = 0; // esi
         // End of the stack
-        stack.*[kernel_stack_bottom + 7] = @ptrToInt(&stack.*[stack.len - 1]); // ebp
+        stack.*[kernel_stack_bottom + 7] = @intFromPtr(&stack.*[stack.len - 1]); // ebp
         stack.*[kernel_stack_bottom + 8] = 0; // esp (temp) this won't be popped by popa bc intel is dump XD
 
         stack.*[kernel_stack_bottom + 9] = 0; // ebx
@@ -583,10 +583,10 @@ pub fn initTask(task: *Task, entry_point: usize, allocator: Allocator, set_up_st
         stack.*[kernel_stack_bottom + 17] = 0x202; // eflags
         if (!task.kernel) {
             // Put the extra values on the kernel stack needed when chaning privilege levels
-            stack.*[kernel_stack_bottom + 18] = @ptrToInt(&task.user_stack[task.user_stack.len - 1]); // user_esp
+            stack.*[kernel_stack_bottom + 18] = @intFromPtr(&task.user_stack[task.user_stack.len - 1]); // user_esp
             stack.*[kernel_stack_bottom + 19] = data_offset; // user_ss
         }
-        task.stack_pointer = @ptrToInt(&stack.*[kernel_stack_bottom]);
+        task.stack_pointer = @intFromPtr(&stack.*[kernel_stack_bottom]);
     }
 
     if (!task.kernel and !builtin.is_test) {
@@ -595,7 +595,7 @@ pub fn initTask(task: *Task, entry_point: usize, allocator: Allocator, set_up_st
         task.vmm.payload = &(try allocator.allocAdvanced(paging.Directory, paging.PAGE_SIZE_4KB, 1, .exact))[0];
         task.vmm.payload.* = paging.kernel_directory.copy();
         if (set_up_stack) {
-            stack.*[kernel_stack_bottom] = vmm.kernel_vmm.virtToPhys(@ptrToInt(task.vmm.payload)) catch |e| {
+            stack.*[kernel_stack_bottom] = vmm.kernel_vmm.virtToPhys(@intFromPtr(task.vmm.payload)) catch |e| {
                 panic(@errorReturnTrace(), "Failed to get the physical address of the user task's page directory: {}\n", .{e});
             };
         }
@@ -680,10 +680,10 @@ pub fn runtimeTestChecksMem(the_vmm: *const vmm.VirtualMemoryManager(VmmPayload)
     while (addr < the_vmm.end and (the_vmm.isSet(addr) catch unreachable)) {
         addr += vmm.BLOCK_SIZE;
     }
-    const should_fault = @intToPtr(*usize, addr).*;
+    const should_fault = @as(*usize, @ptrFromInt(addr)).*;
     log.debug("This should not be printed: {x}\n", .{should_fault});
 }
 
-test "" {
+test {
     std.testing.refAllDecls(@This());
 }

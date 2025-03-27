@@ -379,8 +379,8 @@ pub var main_tss_entry: Tss = init: {
 ///
 fn makeGdtEntry(base: u32, limit: u20, access: AccessBits, flags: FlagBits) GdtEntry {
     return .{
-        .limit_low = @truncate(u16, limit),
-        .base_low = @truncate(u24, base),
+        .limit_low = @truncate(limit),
+        .base_low = @truncate(base),
         .access = .{
             .accessed = access.accessed,
             .read_write = access.read_write,
@@ -390,14 +390,14 @@ fn makeGdtEntry(base: u32, limit: u20, access: AccessBits, flags: FlagBits) GdtE
             .privilege = access.privilege,
             .present = access.present,
         },
-        .limit_high = @truncate(u4, limit >> 16),
+        .limit_high = @truncate(limit >> 16),
         .flags = .{
             .reserved_zero = flags.reserved_zero,
             .is_64_bit = flags.is_64_bit,
             .is_32_bit = flags.is_32_bit,
             .granularity = flags.granularity,
         },
-        .base_high = @truncate(u8, base >> 24),
+        .base_high = @truncate(base >> 24),
     };
 }
 
@@ -408,10 +408,10 @@ pub fn init() void {
     log.info("Init\n", .{});
     defer log.info("Done\n", .{});
     // Initiate TSS
-    gdt_entries[TSS_INDEX] = makeGdtEntry(@ptrToInt(&main_tss_entry), @sizeOf(Tss) - 1, TSS_SEGMENT, NULL_FLAGS);
+    gdt_entries[TSS_INDEX] = makeGdtEntry(@intFromPtr(&main_tss_entry), @sizeOf(Tss) - 1, TSS_SEGMENT, NULL_FLAGS);
 
     // Set the base address where all the GDT entries are.
-    gdt_ptr.base = @ptrToInt(&gdt_entries[0]);
+    gdt_ptr.base = @intFromPtr(&gdt_entries[0]);
 
     // Load the GDT
     arch.lgdt(&gdt_ptr);
@@ -427,7 +427,7 @@ pub fn init() void {
 
 fn mock_lgdt(ptr: *const GdtPtr) void {
     expectEqual(TABLE_SIZE, ptr.limit) catch panic(null, "GDT pointer limit was not correct", .{});
-    expectEqual(@ptrToInt(&gdt_entries[0]), ptr.base) catch panic(null, "GDT pointer base was not correct", .{});
+    expectEqual(@intFromPtr(&gdt_entries[0]), ptr.base) catch panic(null, "GDT pointer base was not correct", .{});
 }
 
 test "GDT entries" {
@@ -438,22 +438,22 @@ test "GDT entries" {
     try expectEqual(@as(u32, 6), @sizeOf(GdtPtr));
 
     const null_entry = gdt_entries[NULL_INDEX];
-    try expectEqual(@as(u64, 0), @bitCast(u64, null_entry));
+    try expectEqual(@as(u64, 0), @bitCast(null_entry));
 
     const kernel_code_entry = gdt_entries[KERNEL_CODE_INDEX];
-    try expectEqual(@as(u64, 0xCF9A000000FFFF), @bitCast(u64, kernel_code_entry));
+    try expectEqual(@as(u64, 0xCF9A000000FFFF), @bitCast(kernel_code_entry));
 
     const kernel_data_entry = gdt_entries[KERNEL_DATA_INDEX];
-    try expectEqual(@as(u64, 0xCF92000000FFFF), @bitCast(u64, kernel_data_entry));
+    try expectEqual(@as(u64, 0xCF92000000FFFF), @bitCast(kernel_data_entry));
 
     const user_code_entry = gdt_entries[USER_CODE_INDEX];
-    try expectEqual(@as(u64, 0xCFFA000000FFFF), @bitCast(u64, user_code_entry));
+    try expectEqual(@as(u64, 0xCFFA000000FFFF), @bitCast(user_code_entry));
 
     const user_data_entry = gdt_entries[USER_DATA_INDEX];
-    try expectEqual(@as(u64, 0xCFF2000000FFFF), @bitCast(u64, user_data_entry));
+    try expectEqual(@as(u64, 0xCFF2000000FFFF), @bitCast(user_data_entry));
 
     const tss_entry = gdt_entries[TSS_INDEX];
-    try expectEqual(@as(u64, 0), @bitCast(u64, tss_entry));
+    try expectEqual(@as(u64, 0), @bitCast(tss_entry));
 
     try expectEqual(TABLE_SIZE, gdt_ptr.limit);
 
@@ -492,7 +492,7 @@ test "makeGdtEntry NULL" {
     const actual = makeGdtEntry(0, 0, NULL_SEGMENT, NULL_FLAGS);
 
     const expected: u64 = 0;
-    try expectEqual(expected, @bitCast(u64, actual));
+    try expectEqual(expected, @bitCast(actual));
 }
 
 test "makeGdtEntry alternating bit pattern" {
@@ -506,7 +506,7 @@ test "makeGdtEntry alternating bit pattern" {
         .present = 0,
     };
 
-    try expectEqual(@as(u8, 0b01010101), @bitCast(u8, alt_access));
+    try expectEqual(@as(u8, 0b01010101), @bitCast(alt_access));
 
     const alt_flag = FlagBits{
         .reserved_zero = 1,
@@ -515,12 +515,12 @@ test "makeGdtEntry alternating bit pattern" {
         .granularity = 0,
     };
 
-    try expectEqual(@as(u4, 0b0101), @bitCast(u4, alt_flag));
+    try expectEqual(@as(u4, 0b0101), @bitCast(alt_flag));
 
     const actual = makeGdtEntry(0b01010101010101010101010101010101, 0b01010101010101010101, alt_access, alt_flag);
 
     const expected: u64 = 0b0101010101010101010101010101010101010101010101010101010101010101;
-    try expectEqual(expected, @bitCast(u64, actual));
+    try expectEqual(expected, @bitCast(actual));
 }
 
 test "init" {
@@ -538,17 +538,17 @@ test "init" {
     // Post testing
     const tss_entry = gdt_entries[TSS_INDEX];
     const tss_limit = @sizeOf(Tss) - 1;
-    const tss_addr = @ptrToInt(&main_tss_entry);
+    const tss_addr = @intFromPtr(&main_tss_entry);
 
     var expected: u64 = 0;
-    expected |= @as(u64, @truncate(u16, tss_limit));
-    expected |= @as(u64, @truncate(u24, tss_addr)) << 16;
+    expected |= @as(u64, @as(u16, @truncate(tss_limit)));
+    expected |= @as(u64, @as(u24, @truncate(tss_addr))) << 16;
     expected |= @as(u64, 0x89) << (16 + 24);
-    expected |= @as(u64, @truncate(u4, tss_limit >> 16)) << (16 + 24 + 8);
+    expected |= @as(u64, @as(u4, @truncate(tss_limit >> 16))) << (16 + 24 + 8);
     // Flags are zero
-    expected |= @as(u64, @truncate(u8, tss_addr >> 24)) << (16 + 24 + 8 + 4 + 4);
+    expected |= @as(u64, @as(u8, @truncate(tss_addr >> 24))) << (16 + 24 + 8 + 4 + 4);
 
-    try expectEqual(expected, @bitCast(u64, tss_entry));
+    try expectEqual(expected, @bitCast(tss_entry));
 
     // Reset
     gdt_ptr.base = 0;

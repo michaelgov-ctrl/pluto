@@ -121,7 +121,7 @@ pub const PAGE_SIZE_4MB: usize = 0x400000;
 pub const PAGE_SIZE_4KB: usize = PAGE_SIZE_4MB / 1024;
 
 /// The kernel's page directory. Should only be used to map kernel-owned code and data
-pub var kernel_directory: Directory align(@truncate(u29, PAGE_SIZE_4KB)) = Directory{ .entries = [_]DirectoryEntry{0} ** ENTRIES_PER_DIRECTORY, .tables = [_]?*Table{null} ** ENTRIES_PER_DIRECTORY };
+pub var kernel_directory: Directory align(@as(u29, @truncate(PAGE_SIZE_4KB))) = Directory{ .entries = [_]DirectoryEntry{0} ** ENTRIES_PER_DIRECTORY, .tables = [_]?*Table{null} ** ENTRIES_PER_DIRECTORY };
 
 ///
 /// Convert a virtual address to an index within an array of directory entries.
@@ -210,7 +210,7 @@ fn mapDirEntry(dir: *Directory, virt_start: usize, virt_end: usize, phys_start: 
     }
 
     const entry = virtToDirEntryIdx(virt_start);
-    var dir_entry = &dir.entries[entry];
+    const dir_entry = &dir.entries[entry];
 
     // Only create a new table if one hasn't already been created for this dir entry.
     // Prevents us from overriding previous mappings.
@@ -219,9 +219,12 @@ fn mapDirEntry(dir: *Directory, virt_start: usize, virt_end: usize, phys_start: 
         table = tbl;
     } else {
         // Create a table and put the physical address in the dir entry
-        table = &(try allocator.alignedAlloc(Table, @truncate(u29, PAGE_SIZE_4KB), 1))[0];
-        @memset(@ptrCast([*]u8, table), 0, @sizeOf(Table));
-        const table_phys_addr = if (builtin.is_test) @ptrToInt(table) else vmm.kernel_vmm.virtToPhys(@ptrToInt(table)) catch |e| {
+        table = &(try allocator.alignedAlloc(Table, @truncate(PAGE_SIZE_4KB), 1))[0];
+        @memset(
+            @as([*]u8, @ptrCast(table)),
+            0,
+        );
+        const table_phys_addr = if (builtin.is_test) @intFromPtr(table) else vmm.kernel_vmm.virtToPhys(@intFromPtr(table)) catch |e| {
             panic(@errorReturnTrace(), "Failed getting the physical address for a page table: {}\n", .{e});
         };
         dir_entry.* |= DENTRY_PAGE_ADDR & table_phys_addr;
@@ -282,7 +285,7 @@ fn unmapDirEntry(dir: *Directory, virt_start: usize, virt_end: usize, allocator:
     const table = dir.tables[entry] orelse return vmm.MapperError.NotMapped;
     var addr = virt_start;
     while (addr < virt_end) : (addr += PAGE_SIZE_4KB) {
-        var table_entry = &table.entries[virtToTableEntryIdx(addr)];
+        const table_entry = &table.entries[virtToTableEntryIdx(addr)];
         if (table_entry.* & TENTRY_PRESENT != 0) {
             clearAttribute(table_entry, TENTRY_PRESENT);
             if (dir == &kernel_directory) {
@@ -409,7 +412,7 @@ pub fn unmap(virtual_start: usize, virtual_end: usize, allocator: Allocator, dir
             clearAttribute(&dir.entries[entry_idx], DENTRY_PRESENT);
 
             const table = dir.tables[entry_idx] orelse return vmm.MapperError.NotMapped;
-            const table_free = @ptrCast([*]Table, table)[0..1];
+            const table_free = @as([*]Table, @ptrCast(table))[0..1];
             allocator.free(table_free);
         }
     }
@@ -430,16 +433,16 @@ fn pageFault(state: *arch.CpuState) u32 {
     const diag_reserved = if (err & 0b1000 != 0) " with reserved bit set" else "";
     const diag_fetch = if (err & 0b10000 != 0) "instruction" else "data";
     log.info("Page fault: {s} process {s} a {s} page during {s} fetch{s}\n", .{ diag_ring, diag_rw, diag_present, diag_fetch, diag_reserved });
-    var cr0 = asm volatile ("mov %%cr0, %[cr0]"
+    const cr0 = asm volatile ("mov %%cr0, %[cr0]"
         : [cr0] "=r" (-> u32),
     );
-    var cr2 = asm volatile ("mov %%cr2, %[cr2]"
+    const cr2 = asm volatile ("mov %%cr2, %[cr2]"
         : [cr2] "=r" (-> u32),
     );
-    var cr3 = asm volatile ("mov %%cr3, %[cr3]"
+    const cr3 = asm volatile ("mov %%cr3, %[cr3]"
         : [cr3] "=r" (-> u32),
     );
-    var cr4 = asm volatile ("mov %%cr4, %[cr4]"
+    const cr4 = asm volatile ("mov %%cr4, %[cr4]"
         : [cr4] "=r" (-> u32),
     );
     log.info("CR0: 0x{X}, CR2/address: 0x{X}, CR3: 0x{X}, CR4: 0x{X}, EIP: 0x{X}\n", .{ cr0, cr2, cr3, cr4, state.eip });
@@ -460,12 +463,12 @@ pub fn init(mem_profile: *const MemProfile) void {
     isr.registerIsr(isr.PAGE_FAULT, if (build_options.test_mode == .Initialisation) rt_pageFault else pageFault) catch |e| {
         panic(@errorReturnTrace(), "Failed to register page fault ISR: {}\n", .{e});
     };
-    const dir_physaddr = @ptrToInt(mem.virtToPhys(&kernel_directory));
+    const dir_physaddr = @intFromPtr(mem.virtToPhys(&kernel_directory));
     asm volatile ("mov %[addr], %%cr3"
         :
         : [addr] "{eax}" (dir_physaddr),
     );
-    const v_end = std.mem.alignForward(@ptrToInt(mem_profile.vaddr_end), PAGE_SIZE_4KB);
+    const v_end = std.mem.alignForward(@intFromPtr(mem_profile.vaddr_end), PAGE_SIZE_4KB);
     switch (build_options.test_mode) {
         .Initialisation => runtimeTests(v_end),
         else => {},
@@ -482,7 +485,7 @@ fn checkDirEntry(entry: DirectoryEntry, virt_start: usize, virt_end: usize, phys
     try expectEqual(entry & DENTRY_ZERO, 0);
 
     var tentry_idx = virtToTableEntryIdx(virt_start);
-    var tentry_idx_end = virtToTableEntryIdx(virt_end);
+    const tentry_idx_end = virtToTableEntryIdx(virt_end);
     var phys = phys_start;
     while (tentry_idx < tentry_idx_end) : ({
         tentry_idx += 1;
@@ -560,7 +563,7 @@ test "mapDirEntry" {
         const entry = dir.entries[entry_idx];
         const table = dir.tables[entry_idx].?;
         try checkDirEntry(entry, virt, virt_end, phys, attrs, table, true);
-        const table_free = @ptrCast([*]Table, table)[0..1];
+        const table_free = @as([*]Table, @ptrCast(table))[0..1];
         allocator.free(table_free);
     }
     {
@@ -575,13 +578,13 @@ test "mapDirEntry" {
         const entry = dir.entries[entry_idx];
         const table = dir.tables[entry_idx].?;
         try checkDirEntry(entry, virt, virt_end, phys, attrs, table, true);
-        const table_free = @ptrCast([*]Table, table)[0..1];
+        const table_free = @as([*]Table, @ptrCast(table))[0..1];
         allocator.free(table_free);
     }
 }
 
 test "mapDirEntry returns errors correctly" {
-    var allocator = std.testing.allocator;
+    const allocator = std.testing.allocator;
     var dir = Directory{ .entries = [_]DirectoryEntry{0} ** ENTRIES_PER_DIRECTORY, .tables = undefined };
     const attrs = vmm.Attributes{ .kernel = true, .writable = true, .cachable = true };
     try testing.expectError(vmm.MapperError.MisalignedVirtualAddress, mapDirEntry(&dir, 1, PAGE_SIZE_4KB + 1, 0, PAGE_SIZE_4KB, attrs, allocator));
@@ -592,7 +595,7 @@ test "mapDirEntry returns errors correctly" {
 }
 
 test "map and unmap" {
-    var allocator = std.testing.allocator;
+    const allocator = std.testing.allocator;
     var dir = Directory{ .entries = [_]DirectoryEntry{0} ** ENTRIES_PER_DIRECTORY, .tables = [_]?*Table{null} ** ENTRIES_PER_DIRECTORY };
 
     vmm.kernel_vmm = try vmm.VirtualMemoryManager(arch.VmmPayload).init(PAGE_SIZE_4MB, 0xFFFFFFFF, allocator, arch.VMM_MAPPER, undefined);
@@ -641,8 +644,8 @@ test "copy" {
     dir.tables[0] = &table0;
     dir.tables[56] = &table56;
     var dir2 = dir.copy();
-    const dir_slice = @ptrCast([*]const u8, &dir)[0..@sizeOf(Directory)];
-    const dir2_slice = @ptrCast([*]const u8, &dir2)[0..@sizeOf(Directory)];
+    const dir_slice = @as([*]const u8, @ptrCast(&dir))[0..@sizeOf(Directory)];
+    const dir2_slice = @as([*]const u8, @ptrCast(&dir2))[0..@sizeOf(Directory)];
     try testing.expectEqualSlices(u8, dir_slice, dir2_slice);
 
     // Changes to one should not affect the other
@@ -662,17 +665,17 @@ var use_callback2 = false;
 fn rt_pageFault(ctx: *arch.CpuState) u32 {
     faulted = true;
     // Return to the fault callback
-    ctx.eip = @ptrToInt(&if (use_callback2) rt_fault_callback2 else rt_fault_callback);
+    ctx.eip = @intFromPtr(&if (use_callback2) rt_fault_callback2 else rt_fault_callback);
 
-    return @ptrToInt(ctx);
+    return @intFromPtr(ctx);
 }
 
 fn rt_accessUnmappedMem(v_end: u32) void {
     use_callback2 = false;
     faulted = false;
     // Accessing unmapped mem causes a page fault
-    var ptr = @intToPtr(*u8, v_end);
-    var value = ptr.*;
+    const ptr: *u8 = @ptrFromInt(v_end);
+    const value = ptr.*;
     // Need this as in release builds the above is optimised out so it needs to be use
     log.err("FAILURE: Value: {}\n", .{value});
     // This is the label that we return to after processing the page fault
@@ -690,7 +693,7 @@ fn rt_accessMappedMem(v_end: u32) void {
     use_callback2 = true;
     faulted = false;
     // Accessing mapped memory doesn't cause a page fault
-    var ptr = @intToPtr(*u8, v_end - PAGE_SIZE_4KB);
+    const ptr: *u8 = @ptrFromInt(v_end - PAGE_SIZE_4KB);
     // Print the value to avoid the load from being optimised away
     log.info("Read value in mapped memory: {}\n", .{ptr.*});
     asm volatile (

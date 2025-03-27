@@ -65,7 +65,7 @@ fn parseScanCode(scan_code: u8) ?KeyAction {
         }
     }
     // Cut off the top bit, which denotes that the key was released
-    const key_code = @truncate(u7, scan_code);
+    const key_code: u7 = @truncate(scan_code);
     var key_pos: ?KeyPosition = null;
     if (special_sequence or on_print_screen) {
         if (!released) {
@@ -111,25 +111,25 @@ fn parseScanCode(scan_code: u8) ?KeyAction {
     key_pos = key_pos orelse switch (key_code) {
         1 => KeyPosition.ESC,
         // Number keys and second row
-        2...28 => @intToEnum(KeyPosition, @enumToInt(KeyPosition.ONE) + (key_code - 2)),
+        2...28 => @enumFromInt(@intFromEnum(KeyPosition.ONE) + (key_code - 2)),
         29 => KeyPosition.LEFT_CTRL,
-        30...40 => @intToEnum(KeyPosition, @enumToInt(KeyPosition.A) + (key_code - 30)),
+        30...40 => @enumFromInt(@intFromEnum(KeyPosition.A) + (key_code - 30)),
         41 => KeyPosition.BACKTICK,
         42 => KeyPosition.LEFT_SHIFT,
         43 => KeyPosition.HASH,
-        44...54 => @intToEnum(KeyPosition, @enumToInt(KeyPosition.Z) + (key_code - 44)),
+        44...54 => @enumFromInt(@intFromEnum(KeyPosition.Z) + (key_code - 44)),
         55 => KeyPosition.KEYPAD_ASTERISK,
         56 => KeyPosition.LEFT_ALT,
         57 => KeyPosition.SPACE,
         58 => KeyPosition.CAPS_LOCK,
-        59...68 => @intToEnum(KeyPosition, @enumToInt(KeyPosition.F1) + (key_code - 59)),
+        59...68 => @enumFromInt(@intFromEnum(KeyPosition.F1) + (key_code - 59)),
         69 => KeyPosition.NUM_LOCK,
         70 => KeyPosition.SCROLL_LOCK,
-        71...73 => @intToEnum(KeyPosition, @enumToInt(KeyPosition.KEYPAD_7) + (key_code - 71)),
+        71...73 => @enumFromInt(@intFromEnum(KeyPosition.KEYPAD_7) + (key_code - 71)),
         74 => KeyPosition.KEYPAD_MINUS,
-        75...77 => @intToEnum(KeyPosition, @enumToInt(KeyPosition.KEYPAD_4) + (key_code - 75)),
+        75...77 => @enumFromInt(@intFromEnum(KeyPosition.KEYPAD_4) + (key_code - 75)),
         78 => KeyPosition.KEYPAD_PLUS,
-        79...81 => @intToEnum(KeyPosition, @enumToInt(KeyPosition.KEYPAD_1) + (key_code - 79)),
+        79...81 => @enumFromInt(@intFromEnum(KeyPosition.KEYPAD_1) + (key_code - 79)),
         82 => KeyPosition.KEYPAD_0,
         83 => KeyPosition.KEYPAD_DOT,
         86 => KeyPosition.BACKSLASH,
@@ -167,7 +167,7 @@ fn onKeyEvent(ctx: *arch.CpuState) usize {
             log.warn("No room for keyboard action {}\n", .{action});
         }
     }
-    return @ptrToInt(ctx);
+    return @intFromPtr(ctx);
 }
 
 ///
@@ -337,7 +337,7 @@ test "parseScanCode" {
         KeyPosition.SPECIAL,
     };
     const simple_special_codes = &[_]u8{ 72, 75, 77, 80, 82, 71, 73, 83, 79, 81, 53, 28, 56, 91 };
-    for (simple_special_keys) |key, i| {
+    for (simple_special_keys, 0..) |key, i| {
         try testing.expectEqual(parseScanCode(128), null);
         try testing.expectEqual(pressed_keys, 0);
         try testing.expectEqual(on_print_screen, false);

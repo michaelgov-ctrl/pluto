@@ -58,9 +58,9 @@ fn lcrValue(char_len: u8, stop_bit: bool, parity_bit: bool, msb: u1) SerialError
         return SerialError.InvalidCharacterLength;
     // Set the msb and OR in all arguments passed
     const val = char_len & 0x3 |
-        @intCast(u8, @boolToInt(stop_bit)) << 2 |
-        @intCast(u8, @boolToInt(parity_bit)) << 3 |
-        @intCast(u8, msb) << 7;
+        @as(u8, @intCast(@intFromBool(stop_bit))) << 2 |
+        @as(u8, @intCast(@intFromBool(parity_bit))) << 3 |
+        @as(u8, @intCast(msb)) << 7;
     return val;
 }
 
@@ -80,7 +80,7 @@ fn lcrValue(char_len: u8, stop_bit: bool, parity_bit: bool, msb: u1) SerialError
 fn baudDivisor(baud: u32) SerialError!u16 {
     if (baud > BAUD_MAX or baud == 0)
         return SerialError.InvalidBaudRate;
-    return @truncate(u16, BAUD_MAX / baud);
+    return @truncate(BAUD_MAX / baud);
 }
 
 ///
@@ -93,7 +93,7 @@ fn baudDivisor(baud: u32) SerialError!u16 {
 ///     If the transmission buffer is empty.
 ///
 fn transmitIsEmpty(port: Port) bool {
-    return arch.in(u8, @enumToInt(port) + 5) & 0x20 > 0;
+    return arch.in(u8, @intFromEnum(port) + 5) & 0x20 > 0;
 }
 
 ///
@@ -107,7 +107,7 @@ pub fn write(char: u8, port: Port) void {
     while (!transmitIsEmpty(port)) {
         arch.halt();
     }
-    arch.out(@enumToInt(port), char);
+    arch.out(@intFromEnum(port), char);
 }
 
 ///
@@ -123,15 +123,15 @@ pub fn write(char: u8, port: Port) void {
 pub fn init(baud: u32, port: Port) SerialError!void {
     // The baudrate is sent as a divisor of the max baud rate
     const divisor: u16 = try baudDivisor(baud);
-    const port_int = @enumToInt(port);
+    const port_int = @intFromEnum(port);
     // Send a byte to start setting the baudrate
     arch.out(port_int + LCR, lcrValue(0, false, false, 1) catch |e| {
         panic(@errorReturnTrace(), "Failed to initialise serial output setup: {}", .{e});
     });
     // Send the divisor's lsb
-    arch.out(port_int, @truncate(u8, divisor));
+    arch.out(port_int, @as(u8, @truncate(divisor)));
     // Send the divisor's msb
-    arch.out(port_int + 1, @truncate(u8, divisor >> 8));
+    arch.out(port_int + 1, @as(u8, @truncate(divisor >> 8)));
     // Send the properties to use
     arch.out(port_int + LCR, lcrValue(CHAR_LEN, SINGLE_STOP_BIT, PARITY_BIT, 0) catch |e| {
         panic(@errorReturnTrace(), "Failed to setup serial properties: {}", .{e});
@@ -148,9 +148,9 @@ test "lcrValue computes the correct value" {
                 inline for ([_]u1{ 0, 1 }) |msb| {
                     const val = try lcrValue(char_len, stop_bit, parity_bit, msb);
                     const expected = char_len & 0x3 |
-                        @boolToInt(stop_bit) << 2 |
-                        @boolToInt(parity_bit) << 3 |
-                        @intCast(u8, msb) << 7;
+                        @intFromBool(stop_bit) << 2 |
+                        @intFromBool(parity_bit) << 3 |
+                        @as(u8, @intCast(msb)) << 7;
                     try testing.expectEqual(val, expected);
                 }
             }
@@ -172,7 +172,7 @@ test "baudDivisor" {
     var baud: u32 = 1;
     while (baud <= BAUD_MAX) : (baud += 1) {
         const val = try baudDivisor(baud);
-        const expected = @truncate(u16, BAUD_MAX / baud);
+        const expected: u16 = @truncate(BAUD_MAX / baud);
         try testing.expectEqual(val, expected);
     }
 }

@@ -77,7 +77,7 @@ fn handle(ctx: *arch.CpuState) usize {
     } else {
         log.warn("Syscall {} is invalid\n", .{syscall});
     }
-    return @ptrToInt(ctx);
+    return @intFromPtr(ctx);
 }
 
 ///
@@ -343,7 +343,7 @@ pub fn init() void {
     };
 
     inline for (std.meta.fields(syscalls.Syscall)) |field| {
-        const syscall = @intToEnum(syscalls.Syscall, field.value);
+        const syscall: syscalls.Syscall = @enumFromInt(field.value);
         if (!syscall.isTest()) {
             registerSyscall(field.value, makeHandler(syscall)) catch |e| {
                 panic(@errorReturnTrace(), "Failed to register syscall for '" ++ field.name ++ "': {}\n", .{e});

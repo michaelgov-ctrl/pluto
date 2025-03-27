@@ -68,7 +68,7 @@ fn isBusy() bool {
 ///
 fn calcDayOfWeek(date_time: DateTime) u32 {
     const t = [_]u8{ 0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4 };
-    const year = date_time.year - @boolToInt(date_time.month < 3);
+    const year = date_time.year - @intFromBool(date_time.month < 3);
     const month = date_time.month;
     const day = date_time.day;
 
@@ -160,7 +160,7 @@ fn rtcHandler(ctx: *arch.CpuState) usize {
     if (schedule) {
         ret_esp = scheduler.pickNextTask(ctx);
     } else {
-        ret_esp = @ptrToInt(ctx);
+        ret_esp = @intFromPtr(ctx);
     }
 
     // Need to read status register C
